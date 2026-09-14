@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Pantry">
+<meta name="theme-color" content="#F7F5F0">
+<title>Grocery Planner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  :root{--paper:#F7F5F0;--ink:#1B1F1C;--muted:#6E7169;--hair:#DDD8CD;--stock:#2E6B52;--red:#B33246}
+  html,body{margin:0;padding:0}
+  body{font-family:'Archivo','Helvetica Neue',Helvetica,Arial,sans-serif;background:var(--paper);
+    color:var(--ink);-webkit-font-smoothing:antialiased;padding-bottom:96px;
+    -webkit-tap-highlight-color:transparent}
+  button{font:inherit;color:inherit;cursor:pointer;border:none;background:none;padding:0;text-align:left}
+  button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid var(--ink);outline-offset:2px;border-radius:3px}
+  header{position:sticky;top:0;z-index:20;background:var(--paper);border-bottom:1px solid var(--hair);
+    padding:calc(14px + env(safe-area-inset-top)) 16px 0}
+  .count{display:flex;align-items:baseline;gap:10px}
+  .count b{font-size:40px;font-weight:800;letter-spacing:-.03em;line-height:1}
+  .count span{font-size:13.5px;color:var(--muted);font-weight:500;line-height:1.3}
+  .tabs{display:flex;gap:20px;margin-top:14px}
+  .tab{padding:0 0 10px;font-size:15px;font-weight:600;color:var(--muted);
+    border-bottom:3px solid transparent;margin-bottom:-1px}
+  .tab.on{color:var(--ink);border-bottom-color:var(--ink)}
+  main{padding:4px 16px 20px;max-width:640px;margin:0 auto}
+  .warn{margin:12px 0 0;padding:10px 12px;border:1px solid var(--hair);border-left:3px solid var(--red);
+    background:#fff;font-size:12.5px;line-height:1.45;color:var(--muted);border-radius:0 6px 6px 0}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;padding:14px 0 6px;align-items:center}
+  .pill{font-size:13px;font-weight:600;padding:7px 13px;border:1px solid var(--hair);border-radius:999px;background:#fff}
+  .pill.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+  .search{flex:1;min-width:150px;padding:9px 12px;font:inherit;font-size:14px;border:1px solid var(--hair);
+    border-radius:999px;background:#fff;color:var(--ink)}
+  .rrow{display:flex;gap:13px;align-items:flex-start;width:100%;padding:14px 0;border-bottom:1px solid var(--hair)}
+  .swatch{flex:0 0 auto;width:26px;height:26px;border-radius:7px;display:grid;place-items:center;
+    margin-top:2px;border:2px solid;transition:background 120ms ease}
+  .rname{font-size:16px;font-weight:700;line-height:1.25;letter-spacing:-.01em;display:block}
+  .rsrc{font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.35;display:block}
+  .gap{font-size:12.5px;color:var(--muted);margin-top:6px;line-height:1.4;padding-left:11px;
+    border-left:2px solid var(--hair);display:block}
+  h2{font-size:12.5px;font-weight:700;letter-spacing:.02em;padding:22px 0 8px;margin:0;
+    display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+  h2 em{font-style:normal;font-weight:500;color:var(--muted);white-space:nowrap}
+  h2 button{font-size:12px;font-weight:600;color:var(--muted);text-decoration:underline;
+    text-underline-offset:3px;white-space:nowrap}
+  .row{display:flex;gap:11px;align-items:flex-start;padding:12px 0;border-bottom:1px solid var(--hair)}
+  .tap{display:flex;gap:11px;align-items:flex-start;flex:1;min-width:0}
+  .box{flex:0 0 auto;width:24px;height:24px;border-radius:50%;border:2px solid var(--ink);
+    display:grid;place-items:center;margin-top:1px;transition:background 120ms ease}
+  .box.sq{border-radius:7px;border-color:var(--stock)}
+  .name{font-size:15.5px;font-weight:650;line-height:1.3;letter-spacing:-.005em;display:block}
+  .qty{font-size:13.5px;color:var(--muted);margin-top:3px;line-height:1.4;display:block}
+  .note{font-size:12.5px;color:var(--muted);margin-top:5px;line-height:1.4;font-style:italic;display:block}
+  .tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:7px}
+  .tg{font-size:10.5px;font-weight:700;letter-spacing:.04em;color:#fff;padding:2.5px 6px;border-radius:4px}
+  .stash{flex:0 0 auto;align-self:center;font-size:11.5px;font-weight:700;padding:6px 9px;
+    border:1px solid var(--hair);border-radius:7px;background:#fff;color:var(--muted);line-height:1.1;text-align:center}
+  .stash.on{background:var(--stock);border-color:var(--stock);color:#fff}
+  .done .name,.done .qty{text-decoration:line-through;opacity:.4}
+  .done .tags,.done .note{opacity:.35}
+  .instock .name,.instock .qty,.instock .tags,.instock .note{opacity:.45}
+  footer{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--paper);
+    border-top:1px solid var(--hair);padding:10px 16px calc(10px + env(safe-area-inset-bottom));
+    display:flex;justify-content:center}
+  footer>div{display:flex;gap:8px;width:100%;max-width:640px;align-items:center}
+  .btn{flex:1;padding:13px 12px;border-radius:10px;font-size:14.5px;font-weight:700;
+    background:var(--ink);color:var(--paper);text-align:center}
+  .btn.ghost{background:none;color:var(--muted);border:1px solid var(--hair);flex:0 0 auto;padding:13px 14px;font-size:13px}
+  .btn.danger{background:var(--red);color:#fff}
+  .btn.off{opacity:.35}
+  .empty{padding:56px 0;text-align:center}
+  .empty p{font-size:16px;font-weight:600;margin:0 0 6px}
+  .empty small{color:var(--muted);font-size:13.5px}
+  textarea{width:100%;height:120px;margin-top:10px;font-family:ui-monospace,Menlo,Consolas,monospace;
+    font-size:12px;padding:10px;border:1px solid var(--hair);border-radius:8px;background:#fff;color:var(--ink)}
+  .status{font-size:11.5px;color:var(--muted);padding:18px 0 0;text-align:center;line-height:1.5}
+  .backup{margin-top:26px;padding-top:18px;border-top:1px solid var(--hair)}
+  .backup h3{font-size:13px;font-weight:700;margin:0 0 4px}
+  .backup p{font-size:12.5px;color:var(--muted);line-height:1.5;margin:0}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+/* ================= DATA ================= */
+var RECIPES = [
+  {tag:"SO",name:"Sticky Orange Tofu",source:"myriadrecipes.com",color:"#C25E12",
+   gap:'Calls for "2 portions cooked jasmine rice" with no raw weight.'},
+  {tag:"ON",name:"Ohn No Khao Sw\u00e8",source:"@Jack Cook \u00b7 Burmese coconut noodles",color:"#A8860B"},
+  {tag:"MT",name:"Crispy Tofu + Miso Tahini Sauce",source:"@Mina \u00b7 serves 2",color:"#6E7B1F",
+   gap:'Says "rice" or "oil" without an amount in at least one place.'},
+  {tag:"KG",name:"Korean Gochujang Tofu + Broccoli",source:"jessicainthekitchen.com",color:"#3E7D3A",
+   gap:'Says "rice" or "oil" without an amount in at least one place.'},
+  {tag:"CL",name:"Cilantro Lime Tofu Marinade",source:"Jessica in the Kitchen (YouTube)",color:"#2E8B6E"},
+  {tag:"CV",name:"Shrimp Ceviche",source:"@Harry Heal",color:"#17788C",
+   gap:"Method is truncated after the shrimp blanch and ice bath."},
+  {tag:"BC",name:"Buffalo Cauliflower",source:"moribyan.com",color:"#2F6BB0"},
+  {tag:"KT",name:"Breaded Tofu Filets",source:"moribyan.com \u00b7 katsu-style",color:"#4B4FA6",
+   gap:'Ingredients cut off at an "OTHER" heading \u2014 frying oil and any sauce are missing.'},
+  {tag:"TB",name:"Tofu & Bean Party Mixture",source:"@anupriya \u00b7 3 servings",color:"#7A46A0"},
+  {tag:"BB",name:"Bang Bang Tofu",source:"@platedbysimoni",color:"#B03A86",
+   gap:'Says "rice" or "oil" without an amount in at least one place.'},
+  {tag:"TC",name:"Turkish Chickpea Bake",source:"@nakkash_kitchen",color:"#B33246"},
+  {tag:"SB",name:"Indian spice blend (unnamed)",source:"@Burger Dude",color:"#8A5A2B",
+   gap:"A labeled spice photo only \u2014 no quantities, no dish name, no method."}
+];
+var BY_TAG = {}; RECIPES.forEach(function(r){ BY_TAG[r.tag]=r; });
+var ALL = RECIPES.map(function(r){ return [r.tag,null]; });
+
+var SECTIONS = ["Produce","Protein & refrigerated","Grains, flours & starch","Canned & jarred",
+  "Sauces & Asian aisle","Oils","Spices & dry seasoning","Non-food"];
+
+/* parts: [tag, qty]. qty null = source gives a combined total but no per-recipe split */
+var RAW = [
+  ["oranges","Produce","Oranges","3 (zest + juice)",[["SO","3, zest + juice"]]],
+  ["lemons","Produce","Lemons","1",[["BB","\u00bd, plus extra for garnish"]]],
+  ["limes","Produce","Limes","7\u20139",[["CV","4\u20135"],["MT","1"],["ON","1"],["CL","1\u20132"]]],
+  ["garlic","Produce","Garlic","2 heads (~16 cloves)",[["SO","3 cloves"],["TC","4 cloves"],["MT","2 cloves"],["ON","2 cloves"],["CL","2 cloves"],["KG","1 tbsp minced"]]],
+  ["ginger","Produce","Fresh ginger","1 large knob",[["SO","1 inch"],["ON","1 tsp grated"],["KG","\u00bd tbsp minced"]]],
+  ["onion-yellow","Produce","Yellow or medium onion","3",[["TB","1"],["TC","1"],["ON","\u00bd"]]],
+  ["onion-red","Produce","Red onion","1 small",[["CV","1 small"]]],
+  ["scallions","Produce","Spring onions / scallions","1\u20132 bunches",[["CV","5"],["KG","for garnish"],["ON","optional"]]],
+  ["shallots","Produce","Shallots","2 tbsp sliced",[["ON","2 tbsp sliced"]]],
+  ["chives","Produce","Chives","10 g + garnish",[["SO",null],["BC",null]],"Source list doesn't split this between the two."],
+  ["cilantro","Produce","Cilantro","3 bunches",[["CV","large handful"],["CL","\u00bc cup"],["TB","3\u20134 tbsp"],["ON","2 tbsp"],["BB","to taste"],["MT","to taste"]]],
+  ["tomatoes","Produce","Tomatoes","4",[["CV","3 ripe"],["TC","1"]]],
+  ["kapya","Produce","Kapya (sweet red) peppers","2",[["TC","2"]]],
+  ["green-peppers","Produce","Green peppers","5",[["TC","5"]]],
+  ["serrano","Produce","Serrano chilies","3",[["CV","3"]]],
+  ["cucumbers","Produce","Cucumbers","4 small, or 1 large + 3 mini",[["CV","3 small"],["MT","\u00bd large or 3 mini"]]],
+  ["red-cabbage","Produce","Red cabbage","1 small head",[["MT","1 cup shredded"]]],
+  ["broccoli","Produce","Broccoli","2\u20133 heads",[["KG","2\u20133 heads"]]],
+  ["cauliflower","Produce","Cauliflower","1 head",[["BC","1 head"]]],
+
+  ["tofu","Protein & refrigerated","Extra-firm tofu","6 blocks",[["SO","280 g"],["TB","168 g"],["BB","1 block, high-protein"],["MT","400 g"],["KG","1 lb"],["CL","1 lb"],["KT","14 oz"]]],
+  ["chicken","Protein & refrigerated","Boneless skinless chicken thighs or breast","225 g",[["ON","225 g"]]],
+  ["shrimp","Protein & refrigerated","Raw shrimp, peeled and deveined","500 g",[["CV","500 g"]]],
+  ["eggs","Protein & refrigerated","Eggs","\u00bd dozen",[["KT","2 large"],["ON","1 hard-boiled"]]],
+  ["buttermilk","Protein & refrigerated","Buttermilk","1\u00bc cup",[["BC","1\u00bc cup"]]],
+  ["milk","Protein & refrigerated","Milk","1 tbsp",[["KT","1 tbsp"]]],
+  ["mayo","Protein & refrigerated","Mayonnaise","2 tbsp",[["BB","2 tbsp"]]],
+  ["miso","Protein & refrigerated","White miso paste","1 heaping tbsp",[["MT","1 heaping tbsp"]]],
+
+  ["jasmine-rice","Grains, flours & starch","Jasmine rice","2 portions + a serving bed",[["SO","2 portions cooked"],["BB","a serving bed"]],"Neither recipe gives a raw weight."],
+  ["rice-any","Grains, flours & starch","Rice, any kind","150 g",[["MT","150 g"]]],
+  ["minute-rice","Grains, flours & starch","Minute instant white rice","2 cups",[["KG","2 cups"]]],
+  ["egg-noodles","Grains, flours & starch","Egg noodles, fresh or dried","140\u2013170 g",[["ON","140\u2013170 g"]]],
+  ["cornstarch","Grains, flours & starch","Cornstarch","~1\u00bd cups",[["BC","\u2153 cup"],["SO","20 g + \u00bd tbsp"],["BB","2 tbsp"],["MT","1\u00bd tbsp"],["KG","1 tbsp"]]],
+  ["flour","Grains, flours & starch","All-purpose flour","1\u2159 cup",[["BC","\u2154 cup"],["KT","\u00bd cup"]]],
+  ["besan","Grains, flours & starch","Chickpea flour (besan)","4 tbsp",[["TB","2\u20133 tbsp"],["ON","1 tbsp"]]],
+  ["panko","Grains, flours & starch","Panko breadcrumbs","2\u2153 cups",[["KT","2 cups"],["BC","\u2153 cup"]]],
+  ["tortillas","Grains, flours & starch","Mini tortillas","3",[["TB","3"]]],
+  ["tortilla-chips","Grains, flours & starch","Tortilla chips","1 bag",[["CV","1 bag"]]],
+
+  ["kidney-beans","Canned & jarred","Kidney beans","1\u00bd cups canned",[["TB","1\u00bd cups canned, or \u00bd cup dry and boiled"]]],
+  ["chickpeas","Canned & jarred","Cooked chickpeas","4 cups (~3 cans)",[["TC","4 cups"]]],
+  ["coconut-milk","Canned & jarred","Full-fat coconut milk","1 cup",[["ON","1 cup"]]],
+  ["chicken-stock","Canned & jarred","Chicken stock","1 cup",[["ON","1 cup"]]],
+
+  ["soy-sauce","Sauces & Asian aisle","Light soy sauce","~\u00bd cup",[["MT","3\u00bd tbsp"],["SO","3 tbsp"],["KG","2 tbsp + 1 tsp"],["BB","1 tbsp"],["ON","\u00bd tsp"]],"MT suggests tamari for gluten-free."],
+  ["gochujang","Sauces & Asian aisle","Gochujang","3 tbsp",[["KG","3 tbsp"]]],
+  ["gochugaru","Sauces & Asian aisle","Gochugaru flakes","\u00bd tbsp",[["SO","\u00bd tbsp"]],"Or \u00bd tsp regular chili flakes."],
+  ["sweet-chili","Sauces & Asian aisle","Sweet chili sauce","3 tbsp",[["BB","3 tbsp"]]],
+  ["sambal","Sauces & Asian aisle","Sambal oelek chili garlic sauce","2 tbsp",[["BB","2 tbsp"]]],
+  ["sriracha","Sauces & Asian aisle","Sriracha","1 tbsp",[["BB","1 tbsp"]]],
+  ["hot-sauce","Sauces & Asian aisle","Hot sauce","3\u20134 tbsp",[["CV","3\u20134 tbsp"]]],
+  ["buffalo-sauce","Sauces & Asian aisle","Buffalo sauce","\u00bd cup",[["BC","\u00bd cup"]]],
+  ["fish-sauce","Sauces & Asian aisle","Fish sauce","1 tbsp",[["ON","1 tbsp"]]],
+  ["rice-vinegar","Sauces & Asian aisle","Rice (wine) vinegar","2\u00bd tbsp",[["KG","2 tbsp"],["BB","\u00bd tbsp"]]],
+  ["tahini","Sauces & Asian aisle","Tahini","\u00bc cup",[["MT","\u00bc cup"]]],
+  ["ketchup","Sauces & Asian aisle","Ketchup","4 tbsp",[["KG","4 tbsp"]]],
+  ["red-pepper-paste","Sauces & Asian aisle","Turkish red pepper paste","1 tbsp",[["TC","1 tbsp"]]],
+  ["maple","Sauces & Asian aisle","Maple syrup or agave","~5 tbsp",[["KG","3 tbsp agave"],["MT","1\u00bd tbsp"],["CL","\u00bd tsp"]]],
+  ["sugar","Sauces & Asian aisle","Sugar","2\u00bd tbsp",[["KG","2 tbsp"],["ON","\u00bd tsp"]]],
+  ["nutritional-yeast","Sauces & Asian aisle","Nutritional yeast","1 tbsp",[["BB","1 tbsp"]]],
+  ["mushroom-seasoning","Sauces & Asian aisle","Mushroom seasoning","\u00bd tbsp",[["BB","\u00bd tbsp"]],null,true],
+  ["msg","Sauces & Asian aisle","MSG","\u00bd tsp",[["SO","\u00bd tsp"]],null,true],
+
+  ["olive-oil","Oils","Olive oil","~1 cup",[["TC","\u00bd cup"],["CL","\u2153 cup extra virgin"],["MT","1 tbsp"]]],
+  ["sesame-oil","Oils","Toasted sesame oil","1\u00bd tbsp",[["MT","1\u00bd tbsp"]]],
+  ["neutral-oil","Oils","Neutral oil","4 tbsp",[["KG","2 tbsp"],["BB","1 tbsp"],["ON","1 tbsp"]]],
+  ["avocado-oil","Oils","Avocado oil","1 tbsp + spray",[["TB",null],["BC",null]],"Source list doesn't split this between the two."],
+
+  ["salt","Spices & dry seasoning","Salt","to taste",ALL,"Source list says every recipe calls for it."],
+  ["black-pepper","Spices & dry seasoning","Black pepper","to taste",ALL,'Source list says "most" recipes without naming which.'],
+  ["white-pepper","Spices & dry seasoning","White pepper","1 tsp",[["BB","1 tsp"]]],
+  ["cumin","Spices & dry seasoning","Ground cumin","~3 tbsp",[["TB","2\u00bd tbsp"],["TC","1 tsp"],["CL","1 tsp"],["SB","no quantity given"]]],
+  ["chili-powder","Spices & dry seasoning","Chili powder","3 tsp",[["BC","2 tsp"],["TB","1 tsp"]]],
+  ["garlic-powder","Spices & dry seasoning","Garlic powder","~2 tsp",[["BC","1 tsp"],["KT","\u00be tsp"],["CL","optional substitute"]]],
+  ["paprika","Spices & dry seasoning","Paprika","1 tsp",[["BC","\u00bd tsp"],["ON","\u00bd tsp"]]],
+  ["cayenne","Spices & dry seasoning","Cayenne","\u00bc tsp",[["ON","\u00bc tsp"]]],
+  ["turmeric","Spices & dry seasoning","Turmeric","\u00bd tsp",[["ON","\u00bd tsp"],["SB","no quantity given"]]],
+  ["red-pepper-flakes","Spices & dry seasoning","Red pepper flakes","1\u00bc tbsp",[["TC","1 tbsp"],["CL","\u00bc tsp"]]],
+  ["isot","Spices & dry seasoning","Isot (Turkish smoked chili)","1 tbsp",[["TC","1 tbsp"]],"Don't skip it, per the creator."],
+  ["chaat-masala","Spices & dry seasoning","Chaat masala","2 tbsp",[["TB","2 tbsp"]],"Optional but recommended.",true],
+  ["sesame-seeds","Spices & dry seasoning","Sesame seeds","2 tsp + garnish",[["SO",null],["BB",null],["MT",null],["KG",null]],"Source list doesn't split this by recipe."],
+  ["garam-masala","Spices & dry seasoning","Garam masala","no quantity given",[["SB","no quantity given"]]],
+  ["coriander-ground","Spices & dry seasoning","Ground coriander","no quantity given",[["SB","no quantity given"]]],
+  ["fenugreek","Spices & dry seasoning","Dried fenugreek (kasuri methi)","no quantity given",[["SB","no quantity given"]]],
+  ["kashmiri","Spices & dry seasoning","Kashmiri chile","no quantity given",[["SB","no quantity given"]]],
+  ["ground-ginger","Spices & dry seasoning","Ground ginger","no quantity given",[["SB","no quantity given"]]],
+
+  ["parchment","Non-food","Parchment paper","as needed",[["TC","as needed"]]]
+];
+
+var ITEMS = RAW.map(function(r){
+  return {id:r[0],section:r[1],name:r[2],total:r[3],
+    parts:r[4].map(function(p){return {tag:p[0],qty:p[1]};}),
+    note:r[5]||null, optional:!!r[6]};
+});
+var VALID = {}; ITEMS.forEach(function(i){ VALID[i.id]=true; });
+
+/* ================= STATE + STORAGE ================= */
+var KEY = "grocery-planner";
+var S = {selected:[],pantry:[],cart:[],tab:"recipes",hidePantry:true,filter:"",confirm:false,backup:null};
+var status = "ready", savedAt = null, copied = false;
+
+function load(){
+  try{
+    var raw = localStorage.getItem(KEY);
+    if(raw){
+      var o = JSON.parse(raw);
+      S.selected = (o.selected||[]).filter(function(t){return !!BY_TAG[t];});
+      S.pantry   = (o.pantry||[]).filter(function(i){return VALID[i];});
+      S.cart     = (o.cart||[]).filter(function(i){return VALID[i];});
+      if(typeof o.hidePantry === "boolean") S.hidePantry = o.hidePantry;
+    }
+    status = "ready";
+  }catch(e){ status = "off"; }
+}
+/* synchronous — completes before the tap handler returns, so closing the app can't interrupt it */
+function save(){
+  try{
+    localStorage.setItem(KEY, JSON.stringify(
+      {selected:S.selected,pantry:S.pantry,cart:S.cart,hidePantry:S.hidePantry}));
+    status = "ready"; savedAt = new Date();
+  }catch(e){ status = "off"; }
+}
+
+/* ================= HELPERS ================= */
+function esc(s){ return String(s).replace(/[&<>"']/g,function(c){
+  return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+function has(a,v){ return a.indexOf(v) !== -1; }
+function toggle(a,v){ var i=a.indexOf(v); if(i===-1) a.push(v); else a.splice(i,1); }
+var TICK = '<svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">'+
+  '<path d="M2.5 8.5l3.5 3.5 7.5-8" fill="none" stroke="COLOR" stroke-width="2.6" '+
+  'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+function tick(c){ return TICK.replace("COLOR", c||"#fff"); }
+
+function buildList(){
+  var out = [];
+  ITEMS.forEach(function(it){
+    var active = it.parts.filter(function(p){ return has(S.selected,p.tag); });
+    if(!active.length) return;
+    var allIn = active.length === it.parts.length;
+    var known = active.every(function(p){ return !!p.qty; });
+    var qty = (allIn || !known) ? it.total
+      : active.map(function(p){ return p.qty+" ("+p.tag+")"; }).join("  +  ");
+    out.push({id:it.id,section:it.section,name:it.name,note:it.note,optional:it.optional,
+      qty:qty, tags:active.map(function(p){return p.tag;}), partial:(!allIn && !known)});
+  });
+  return out;
+}
+function group(items){
+  var m = {};
+  items.forEach(function(it){ (m[it.section] = m[it.section]||[]).push(it); });
+  return SECTIONS.filter(function(s){ return m[s]; }).map(function(s){ return [s, m[s]]; });
+}
+function tagChips(tags){
+  return '<span class="tags">'+tags.map(function(t){
+    return '<span class="tg" style="background:'+BY_TAG[t].color+'">'+t+'</span>'; }).join("")+'</span>';
+}
+function statusLine(){
+  if(status === "off") return "Not saving \u2014 private browsing or storage is blocked";
+  if(savedAt) return "Saved "+savedAt.toLocaleTimeString([], {hour:"numeric",minute:"2-digit"});
+  return "Saved on this device";
+}
+
+/* ================= RENDER ================= */
+function render(){
+  var list = buildList(), grouped = group(list);
+  var toBuy = list.filter(function(it){ return !has(S.pantry,it.id) && !has(S.cart,it.id); });
+  var haveCount = list.filter(function(it){ return has(S.pantry,it.id); }).length;
+
+  var big, cap;
+  if(S.tab === "recipes"){ big = S.selected.length;
+    cap = (S.selected.length===1?"recipe":"recipes")+" picked \u00b7 "+list.length+" ingredients"; }
+  else if(S.tab === "pantry"){ big = S.pantry.length;
+    cap = "of "+ITEMS.length+" ingredients marked as in stock"; }
+  else { big = toBuy.length;
+    cap = "left to buy \u00b7 "+S.cart.length+" in the cart"+(haveCount?" \u00b7 "+haveCount+" from the pantry":""); }
+
+  var h = '<header><div class="count"><b>'+big+'</b><span>'+cap+'</span></div><div class="tabs">'+
+    [["recipes","Recipes"],["list","Shopping list"],["pantry","Pantry"]].map(function(t){
+      return '<button class="tab'+(S.tab===t[0]?" on":"")+'" data-act="tab" data-v="'+t[0]+'">'+t[1]+'</button>';
+    }).join("")+'</div></header><main>';
+
+  if(status === "off") h += '<div class="warn">This browser is blocking storage, so nothing will be '+
+    'remembered. Turn off Private Browsing, or keep the backup code at the bottom of the Pantry tab.</div>';
+
+  /* ---- RECIPES ---- */
+  if(S.tab === "recipes"){
+    h += '<div class="bar"><button class="pill" data-act="all-recipes">Pick all 12</button>'+
+      '<button class="pill" data-act="no-recipes">Clear picks</button></div>';
+    RECIPES.forEach(function(r){
+      var on = has(S.selected, r.tag);
+      h += '<button class="rrow" data-act="recipe" data-v="'+r.tag+'">'+
+        '<span class="swatch" style="border-color:'+r.color+';background:'+(on?r.color:"transparent")+'">'+
+        (on?tick():"")+'</span><span style="flex:1;min-width:0">'+
+        '<span class="rname">'+esc(r.name)+'</span><span class="rsrc">'+esc(r.source)+'</span>'+
+        (r.gap?'<span class="gap">'+esc(r.gap)+'</span>':"")+'</span></button>';
+    });
+  }
+
+  /* ---- SHOPPING LIST ---- */
+  if(S.tab === "list"){
+    if(!list.length){
+      h += '<div class="empty"><p>Nothing to buy yet</p><small>Pick a few recipes and the list '+
+        'builds itself.</small><div style="margin-top:18px">'+
+        '<button class="pill" data-act="tab" data-v="recipes">Go pick recipes</button></div></div>';
+    } else {
+      h += '<div class="bar"><button class="pill'+(S.hidePantry?" on":"")+'" data-act="hide">'+
+        (S.hidePantry?("Hiding "+haveCount+" pantry items"):"Showing pantry items")+'</button>'+
+        (S.cart.length?'<button class="pill" data-act="empty-cart">Empty cart</button>':"")+'</div>';
+      grouped.forEach(function(g){
+        var section = g[0], items = g[1];
+        var vis = S.hidePantry ? items.filter(function(it){ return !has(S.pantry,it.id); }) : items;
+        if(!vis.length) return;
+        var left = items.filter(function(it){ return !has(S.pantry,it.id) && !has(S.cart,it.id); }).length;
+        vis = vis.slice().sort(function(a,b){ return (has(S.pantry,a.id)?1:0)-(has(S.pantry,b.id)?1:0); });
+        h += '<h2>'+esc(section)+'<em>'+left+' to buy</em></h2>';
+        vis.forEach(function(it){
+          var done = has(S.cart,it.id), have = has(S.pantry,it.id);
+          h += '<div class="row'+(done?" done":"")+(have?" instock":"")+'">'+
+            '<button class="tap" data-act="'+(have?"noop":"cart")+'" data-v="'+it.id+'">'+
+            '<span class="box" style="background:'+(done?"var(--ink)":"transparent")+';visibility:'+
+            (have?"hidden":"visible")+'">'+(done?tick("#F7F5F0"):"")+'</span>'+
+            '<span style="flex:1;min-width:0"><span class="name">'+esc(it.name)+
+            (it.optional?" (optional)":"")+'</span><span class="qty">'+
+            (have ? "In stock" : (it.partial ? "up to "+esc(it.qty)+" \u2014 split by recipe not given"
+              : esc(it.qty)))+'</span>'+
+            (!have && it.note ? '<span class="note">'+esc(it.note)+'</span>' : "")+
+            tagChips(it.tags)+'</span></button>'+
+            '<button class="stash'+(have?" on":"")+'" data-act="stock" data-v="'+it.id+'">'+
+            (have?"In stock":"Have it")+'</button></div>';
+        });
+      });
+      h += '<div class="status">'+statusLine()+'</div>';
+    }
+  }
+
+  /* ---- PANTRY ---- */
+  if(S.tab === "pantry"){
+    h += '<div class="bar"><input class="search" id="q" value="'+esc(S.filter)+
+      '" placeholder="Find an ingredient">'+
+      (S.filter?'<button class="pill" data-act="clear-filter">Clear</button>':"")+'</div>'+
+      '<p style="font-size:13px;color:var(--muted);line-height:1.5;margin:2px 0 0">Mark what\'s already '+
+      'in your kitchen. These stay marked between visits and drop out of every list until you unmark them.</p>';
+    var q = S.filter.trim().toLowerCase();
+    var pool = q ? ITEMS.filter(function(i){ return i.name.toLowerCase().indexOf(q) !== -1; }) : ITEMS;
+    if(!pool.length) h += '<div class="empty"><p>No match</p><small>Try a shorter word.</small></div>';
+    group(pool).forEach(function(g){
+      var section = g[0], items = g[1];
+      var allOn = items.every(function(it){ return has(S.pantry,it.id); });
+      h += '<h2>'+esc(section)+'<button data-act="mark-section" data-v="'+esc(section)+'">'+
+        (allOn?"Unmark all":"Mark all")+'</button></h2>';
+      items.forEach(function(it){
+        var have = has(S.pantry,it.id);
+        h += '<div class="row"><button class="tap" data-act="stock" data-v="'+it.id+'">'+
+          '<span class="box sq" style="background:'+(have?"var(--stock)":"transparent")+'">'+
+          (have?tick():"")+'</span><span style="flex:1;min-width:0">'+
+          '<span class="name">'+esc(it.name)+'</span><span class="qty">Used in '+
+          (it.parts.length===RECIPES.length ? "every recipe"
+            : it.parts.map(function(p){return p.tag;}).join(", "))+
+          '</span></span></button></div>';
+      });
+    });
+    h += '<div class="backup"><h3>Backup code</h3><p>Paste this into a note. If the pantry ever comes '+
+      'back empty, paste it back here and tap Restore.</p><textarea id="bk" placeholder="Your pantry is '+
+      'empty \u2014 mark some items first.">'+esc(S.backup===null ? S.pantry.join(" ") : S.backup)+
+      '</textarea><div style="display:flex;gap:8px">'+
+      '<button class="pill" data-act="restore">Restore from this code</button></div></div>'+
+      '<div class="status">'+statusLine()+'</div>';
+  }
+
+  h += '</main><footer><div>';
+  if(S.tab === "recipes")
+    h += '<button class="btn'+(S.selected.length?"":" off")+'" data-act="tab" data-v="list">'+
+      (S.selected.length ? "Build list ("+toBuy.length+" to buy)" : "Pick a recipe to start")+'</button>';
+  if(S.tab === "list")
+    h += '<button class="btn'+(toBuy.length?"":" off")+'" data-act="copy">'+
+      (copied ? "Copied" : "Copy what\u2019s left ("+toBuy.length+")")+'</button>';
+  if(S.tab === "pantry"){
+    h += S.confirm
+      ? '<button class="btn danger" data-act="wipe">Yes, empty the pantry</button>'+
+        '<button class="btn ghost" data-act="unconfirm">Keep it</button>'
+      : '<button class="btn" data-act="tab" data-v="list">See the list</button>'+
+        '<button class="btn ghost'+(S.pantry.length?"":" off")+'" data-act="confirm">Empty pantry</button>';
+  }
+  if(S.tab !== "pantry")
+    h += '<button class="btn ghost" data-act="tab" data-v="pantry">Pantry'+
+      (S.pantry.length?" ("+S.pantry.length+")":"")+'</button>';
+  h += '</div></footer>';
+
+  document.getElementById("app").innerHTML = h;
+
+  var q1 = document.getElementById("q");
+  if(q1){
+    q1.addEventListener("input", function(){ S.filter = q1.value; render(); });
+    if(S.filter){ q1.focus(); try{ q1.setSelectionRange(q1.value.length, q1.value.length); }catch(e){} }
+  }
+  var bk = document.getElementById("bk");
+  if(bk) bk.addEventListener("input", function(){ S.backup = bk.value; });
+}
+
+/* ================= EVENTS ================= */
+function listText(){
+  var grouped = group(buildList());
+  var haveCount = buildList().filter(function(it){ return has(S.pantry,it.id); }).length;
+  var out = ["Grocery list \u2014 "+S.selected.map(function(t){return BY_TAG[t].name;}).join(", ")];
+  if(haveCount) out.push("("+haveCount+" more already in the pantry)");
+  out.push("");
+  grouped.forEach(function(g){
+    var rows = g[1].filter(function(it){ return !has(S.pantry,it.id) && !has(S.cart,it.id); });
+    if(!rows.length) return;
+    out.push(g[0].toUpperCase());
+    rows.forEach(function(it){ out.push("- "+it.name+" \u2014 "+it.qty+" ["+it.tags.join(" ")+"]"); });
+    out.push("");
+  });
+  return out.join("\n").trim();
+}
+
+document.getElementById("app").addEventListener("click", function(ev){
+  var el = ev.target.closest("[data-act]");
+  if(!el) return;
+  var act = el.getAttribute("data-act"), v = el.getAttribute("data-v");
+  var dirty = true;
+
+  if(act === "noop" || act === "clear-filter"){ if(act==="clear-filter") S.filter=""; dirty=false; }
+  else if(act === "tab"){ S.tab = v; S.confirm = false; copied = false; dirty = false; }
+  else if(act === "recipe") toggle(S.selected, v);
+  else if(act === "all-recipes") S.selected = RECIPES.map(function(r){ return r.tag; });
+  else if(act === "no-recipes") S.selected = [];
+  else if(act === "cart") toggle(S.cart, v);
+  else if(act === "stock"){
+    toggle(S.pantry, v);
+    var ci = S.cart.indexOf(v); if(ci !== -1) S.cart.splice(ci,1);
+    S.backup = null;
+  }
+  else if(act === "hide") S.hidePantry = !S.hidePantry;
+  else if(act === "empty-cart") S.cart = [];
+  else if(act === "mark-section"){
+    var ids = ITEMS.filter(function(i){ return i.section === v; }).map(function(i){ return i.id; });
+    var allOn = ids.every(function(id){ return has(S.pantry,id); });
+    S.pantry = allOn ? S.pantry.filter(function(p){ return ids.indexOf(p) === -1; })
+      : S.pantry.concat(ids.filter(function(id){ return !has(S.pantry,id); }));
+    S.backup = null;
+  }
+  else if(act === "confirm"){ if(!S.pantry.length) return; S.confirm = true; dirty = false; }
+  else if(act === "unconfirm"){ S.confirm = false; dirty = false; }
+  else if(act === "wipe"){ S.pantry = []; S.confirm = false; S.backup = null; }
+  else if(act === "restore"){
+    var ids2 = (S.backup === null ? "" : S.backup).split(/[\s,]+/)
+      .map(function(s){ return s.trim(); }).filter(function(s){ return VALID[s]; });
+    S.pantry = ids2.filter(function(x,i){ return ids2.indexOf(x) === i; });
+    S.backup = null;
+  }
+  else if(act === "copy"){
+    var txt = listText();
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt).then(function(){
+        copied = true; render(); setTimeout(function(){ copied = false; render(); }, 1800);
+      }).catch(function(){ window.prompt("Copy this list:", txt); });
+    } else { window.prompt("Copy this list:", txt); }
+    return;
+  }
+
+  if(dirty) save();
+  render();
+});
+
+load();
+render();
+</script>
+</body>
+</html>
