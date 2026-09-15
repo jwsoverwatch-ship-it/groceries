@@ -279,7 +279,97 @@ function save(){
     localStorage.setItem(KEY, JSON.stringify(
       {selected:S.selected,pantry:S.pantry,cart:S.cart,hidePantry:S.hidePantry}));
     status = "ready"; savedAt = new Date();
+    ownSet("updatedAt", new Date().toISOString());
+    queuePush();
   }catch(e){ status = "off"; }
+}
+
+/* ================= GIST SYNC (shares Crate's token + gist) ================= */
+var GIST_FILE="grocery_data.json";
+var SYNC={ready:false,state:"idle",err:"",at:null,timer:null,pending:false};
+
+/* Crate stores its config under localStorage key "crate_<k>", JSON-encoded. */
+function crateGet(k,fb){try{var v=localStorage.getItem("crate_"+k);return v?JSON.parse(v):fb}catch(e){return fb}}
+function ownGet(k,fb){try{var v=localStorage.getItem("groc_"+k);return v?JSON.parse(v):fb}catch(e){return fb}}
+function ownSet(k,v){try{localStorage.setItem("groc_"+k,JSON.stringify(v))}catch(e){}}
+function cfg(){
+  var t=ownGet("gh-token","")||crateGet("gh-token","");
+  var g=ownGet("gh-gist-id","")||crateGet("gh-gist-id","");
+  return{token:t,gistId:g,borrowed:!ownGet("gh-token","")&&!!crateGet("gh-token","")};
+}
+function connected(){var c=cfg();return!!(c.token&&c.gistId)}
+
+async function gistPull(){
+  var c=cfg();
+  if(!c.token||!c.gistId)throw new Error("No token or gist ID");
+  var res=await fetch("https://api.github.com/gists/"+c.gistId,
+    {headers:{"Authorization":"token "+c.token,"Accept":"application/vnd.github.v3+json"}});
+  if(!res.ok)throw new Error("GitHub "+res.status+" "+res.statusText);
+  var data=await res.json();
+  var f=data&&data.files&&data.files[GIST_FILE];
+  if(!f)return null;                                  // first run: file not created yet
+  var text;
+  if(!f.truncated&&f.content){text=f.content}          // inline content, no extra fetch
+  else{                                                // raw_url must be fetched WITHOUT auth
+    var r=await fetch(f.raw_url);
+    if(!r.ok)throw new Error("Raw fetch "+r.status);
+    text=await r.text();
+  }
+  return JSON.parse(text);
+}
+
+async function gistPush(keepalive){
+  var c=cfg();
+  if(!c.token||!c.gistId||!SYNC.ready)return;
+  var files={};
+  files[GIST_FILE]={content:JSON.stringify({pantry:S.pantry,selected:S.selected,updatedAt:new Date().toISOString()})};
+  var res=await fetch("https://api.github.com/gists/"+c.gistId,{
+    method:"PATCH",keepalive:!!keepalive,
+    headers:{"Authorization":"token "+c.token,"Accept":"application/vnd.github.v3+json","Content-Type":"application/json"},
+    body:JSON.stringify({files:files})});
+  if(!res.ok)throw new Error("GitHub "+res.status);
+  SYNC.pending=false;SYNC.state="synced";SYNC.at=new Date();SYNC.err="";
+}
+
+/* Debounced so a burst of taps is one API call. localStorage already holds the
+   truth locally, so a dropped push only means the other device is briefly stale. */
+function queuePush(){
+  if(!connected()||!SYNC.ready)return;
+  SYNC.pending=true;SYNC.state="syncing";
+  if(SYNC.timer)clearTimeout(SYNC.timer);
+  SYNC.timer=setTimeout(function(){
+    SYNC.timer=null;
+    gistPush(false).then(render).catch(function(e){SYNC.state="error";SYNC.err=e.message;render()});
+  },1500);
+}
+function flushPush(){
+  if(!SYNC.pending)return;
+  if(SYNC.timer){clearTimeout(SYNC.timer);SYNC.timer=null}
+  gistPush(true).catch(function(){});
+}
+document.addEventListener("visibilitychange",function(){if(document.visibilityState==="hidden")flushPush()});
+window.addEventListener("pagehide",flushPush);
+
+/* Pull on load. Newer updatedAt wins; a remote with no pantry never clobbers a local one. */
+function syncOnLoad(){
+  if(!connected())return;
+  SYNC.state="syncing";render();
+  gistPull().then(function(remote){
+    if(remote){
+      var mine=ownGet("updatedAt","");
+      var theirs=remote.updatedAt||"";
+      var remoteHasData=(remote.pantry||[]).length>0;
+      if(theirs>mine&&remoteHasData){
+        S.pantry=(remote.pantry||[]).filter(function(i){return VALID[i]});
+        S.selected=(remote.selected||[]).filter(function(t){return!!BY_TAG[t]});
+        ownSet("updatedAt",theirs);
+        save();
+      }
+    }
+    SYNC.ready=true;SYNC.state="synced";SYNC.at=new Date();render();
+  }).catch(function(e){
+    SYNC.ready=false;SYNC.state="error";SYNC.err=e.message;render();
+  });
 }
 
 /* ================= HELPERS ================= */
@@ -339,7 +429,7 @@ function render(){
     cap = "left to buy \u00b7 "+S.cart.length+" in the cart"+(haveCount?" \u00b7 "+haveCount+" from the pantry":""); }
 
   var h = '<header><div class="count"><b>'+big+'</b><span>'+cap+'</span></div><div class="tabs">'+
-    [["recipes","Recipes"],["list","Shopping list"],["pantry","Pantry"]].map(function(t){
+    [["recipes","Recipes"],["list","List"],["pantry","Pantry"],["sync","Sync"]].map(function(t){
       return '<button class="tab'+(S.tab===t[0]?" on":"")+'" data-act="tab" data-v="'+t[0]+'">'+t[1]+'</button>';
     }).join("")+'</div></header><main>';
 
@@ -428,6 +518,40 @@ function render(){
       '<div class="status">'+statusLine()+'</div>';
   }
 
+  if(S.tab === "sync"){
+    var c=cfg();
+    var line = SYNC.state==="syncing"?"Syncing\u2026"
+      : SYNC.state==="error"?("Error: "+SYNC.err)
+      : SYNC.at?("Synced "+SYNC.at.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}))
+      : connected()?"Connected, not synced yet":"Not connected";
+    var dot = SYNC.state==="error"?"var(--red)":SYNC.state==="syncing"?"#c8922e":connected()?"var(--stock)":"var(--muted)";
+
+    h += '<div style="display:flex;align-items:center;gap:8px;padding:16px 0 4px">'+
+      '<span style="width:10px;height:10px;border-radius:50%;background:'+dot+';flex:0 0 auto"></span>'+
+      '<span style="font-size:14px;font-weight:600">'+esc(line)+'</span></div>';
+
+    if(connected()){
+      h += '<p style="font-size:13px;color:var(--muted);line-height:1.55;margin:8px 0 0">Your pantry and '+
+        'recipe picks live in <code style="font-size:12px">'+GIST_FILE+'</code> inside gist <code style="font-size:12px">'+
+        esc(c.gistId.slice(0,10))+'\u2026</code>'+(c.borrowed?', using the token Crate already saved on this device':'')+
+        '. Crate\u2019s own file in that gist is never touched. The cart stays on this device \u2014 a half-checked '+
+        'basket on your phone has no business showing up on your desktop.</p>'+
+        '<div class="bar"><button class="pill" data-act="gh-push">Push now</button>'+
+        '<button class="pill" data-act="gh-pull">Pull now</button>'+
+        '<button class="pill" data-act="gh-forget">Disconnect</button></div>';
+    } else {
+      h += '<p style="font-size:13px;color:var(--muted);line-height:1.55;margin:8px 0 0">No credentials found. '+
+        'If Crate is hosted on this same origin and you\u2019ve connected it here, they\u2019d be picked up '+
+        'automatically \u2014 otherwise paste them below. The token needs only the <code style="font-size:12px">gist</code> scope.</p>'+
+        '<div style="margin-top:14px"><label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">GitHub token</label>'+
+        '<input class="search" id="ght" type="password" placeholder="ghp_\u2026" style="width:100%;flex:none" value="'+esc(ownGet("gh-token",""))+'">'+
+        '<label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin:12px 0 4px">Gist ID</label>'+
+        '<input class="search" id="ghg" placeholder="the id from your Crate gist URL" style="width:100%;flex:none" value="'+esc(ownGet("gh-gist-id",""))+'">'+
+        '<div class="bar"><button class="pill" data-act="gh-connect">Connect</button></div></div>';
+    }
+    h += '<div class="status">'+statusLine()+'</div>';
+  }
+
   h += '</main><footer><div>';
   if(S.tab === "recipes")
     h += '<button class="btn'+(S.selected.length?"":" off")+'" data-act="tab" data-v="list">'+
@@ -442,7 +566,9 @@ function render(){
       : '<button class="btn" data-act="tab" data-v="list">See the list</button>'+
         '<button class="btn ghost'+(S.pantry.length?"":" off")+'" data-act="confirm">Empty pantry</button>';
   }
-  if(S.tab !== "pantry")
+  if(S.tab === "sync")
+    h += '<button class="btn" data-act="tab" data-v="list">Back to the list</button>';
+  if(S.tab !== "pantry" && S.tab !== "sync")
     h += '<button class="btn ghost" data-act="tab" data-v="pantry">Pantry'+
       (S.pantry.length?" ("+S.pantry.length+")":"")+'</button>';
   h += '</div></footer>';
@@ -454,6 +580,10 @@ function render(){
     q1.addEventListener("input", function(){ S.filter = q1.value; render(); });
     if(S.filter){ q1.focus(); try{ q1.setSelectionRange(q1.value.length, q1.value.length); }catch(e){} }
   }
+  ["ght","ghg"].forEach(function(id){
+    var el=document.getElementById(id);
+    if(el)el.addEventListener("input",function(){el.setAttribute("value",el.value)});
+  });
   var bk = document.getElementById("bk");
   if(bk) bk.addEventListener("input", function(){ S.backup = bk.value; });
 }
@@ -510,6 +640,35 @@ document.getElementById("app").addEventListener("click", function(ev){
     S.pantry = ids2.filter(function(x,i){ return ids2.indexOf(x) === i; });
     S.backup = null;
   }
+  else if(act === "gh-connect"){
+    var t=(document.getElementById("ght")||{}).value||"";
+    var g=(document.getElementById("ghg")||{}).value||"";
+    if(!t.trim()||!g.trim()){SYNC.state="error";SYNC.err="Both fields are required";render();return}
+    ownSet("gh-token",t.trim());ownSet("gh-gist-id",g.trim());
+    SYNC.ready=false;syncOnLoad();return;
+  }
+  else if(act === "gh-pull"){
+    SYNC.state="syncing";render();
+    gistPull().then(function(r){
+      if(r&&(r.pantry||[]).length){
+        S.pantry=(r.pantry||[]).filter(function(i){return VALID[i]});
+        S.selected=(r.selected||[]).filter(function(x){return!!BY_TAG[x]});
+        ownSet("updatedAt",r.updatedAt||new Date().toISOString());
+        SYNC.ready=true;save();
+      } else { SYNC.err="Nothing stored in the gist yet";SYNC.state="error";render();return }
+      SYNC.state="synced";SYNC.at=new Date();render();
+    }).catch(function(e){SYNC.state="error";SYNC.err=e.message;render()});
+    return;
+  }
+  else if(act === "gh-push"){
+    SYNC.ready=true;SYNC.state="syncing";render();
+    gistPush(false).then(render).catch(function(e){SYNC.state="error";SYNC.err=e.message;render()});
+    return;
+  }
+  else if(act === "gh-forget"){
+    ownSet("gh-token","");ownSet("gh-gist-id","");
+    SYNC.ready=false;SYNC.state="idle";SYNC.at=null;SYNC.err="";render();return;
+  }
   else if(act === "copy"){
     var txt = listText();
     if(navigator.clipboard && navigator.clipboard.writeText){
@@ -526,6 +685,7 @@ document.getElementById("app").addEventListener("click", function(ev){
 
 load();
 render();
+syncOnLoad();
 </script>
 </body>
 </html>
