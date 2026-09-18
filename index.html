@@ -82,6 +82,26 @@
   .backup{margin-top:26px;padding-top:18px;border-top:1px solid var(--hair)}
   .backup h3{font-size:13px;font-weight:700;margin:0 0 4px}
   .backup p{font-size:12.5px;color:var(--muted);line-height:1.5;margin:0}
+  .fld{width:100%;padding:9px 12px;font:inherit;font-size:14px;border:1px solid var(--hair);
+    border-radius:8px;background:#fff;color:var(--ink);margin-bottom:10px}
+  .lbl{font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px}
+  .sel{font:inherit;font-size:13px;padding:6px 8px;border:1px solid var(--hair);border-radius:7px;
+    background:#fff;color:var(--ink);max-width:100%}
+  .raw{font-size:12.5px;color:var(--muted);line-height:1.4;display:block;margin-bottom:5px}
+  .ok{color:var(--stock);font-weight:700}
+  .maybe{color:#9a6b12;font-weight:700}
+  .new{color:#2F6BB0;font-weight:700}
+  .grp{font-size:12.5px;font-weight:700;padding:20px 0 6px;margin:0}
+  .step{display:flex;gap:11px;padding:11px 0;border-bottom:1px solid var(--hair)}
+  .num{flex:0 0 auto;width:22px;height:22px;border-radius:50%;background:var(--ink);color:var(--paper);
+    font-size:12px;font-weight:700;display:grid;place-items:center;margin-top:2px}
+  .stxt{font-size:14.5px;line-height:1.5}
+  .stt{font-size:13px;font-weight:700;display:block;margin-bottom:3px}
+  .meta{display:flex;gap:6px;flex-wrap:wrap;padding:12px 0 0}
+  .chip{font-size:11.5px;font-weight:600;color:var(--muted);border:1px solid var(--hair);
+    border-radius:999px;padding:4px 10px;background:#fff}
+  .steps-btn{flex:0 0 auto;align-self:center;font-size:11.5px;font-weight:700;padding:6px 9px;
+    border:1px solid var(--hair);border-radius:7px;background:#fff;color:var(--muted)}
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -253,11 +273,46 @@ var ITEMS = RAW.map(function(r){
     parts:r[4].map(function(p){return {tag:p[0],qty:p[1]};}),
     note:r[5]||null, optional:!!r[6]};
 });
-var VALID = {}; ITEMS.forEach(function(i){ VALID[i.id]=true; });
+var VALID = {};
+
+/* The 16 recipes and 104 items above are the built-in base. Anything imported
+   lives in S.custom and is merged on top at runtime, so the base stays a clean
+   constant and a bad import is always reversible. */
+var BASE_RECIPES = RECIPES, BASE_ITEMS = ITEMS;
+var ALL_ITEM_IDS = {};                      // items whose parts should cover every recipe
+BASE_ITEMS.forEach(function(i){ if(i.parts.length === BASE_RECIPES.length) ALL_ITEM_IDS[i.id]=1; });
+
+function rebuild(){
+  RECIPES = BASE_RECIPES.concat(S.custom.recipes || []);
+  BY_TAG = {}; RECIPES.forEach(function(r){ BY_TAG[r.tag] = r; });
+
+  ITEMS = BASE_ITEMS.map(function(i){
+    return {id:i.id, section:i.section, name:i.name, total:i.total,
+            parts:i.parts.slice(), note:i.note, optional:i.optional};
+  }).concat((S.custom.items || []).map(function(r){
+    return {id:r.id, section:r.section, name:r.name, total:r.total,
+            parts:(r.parts||[]).map(function(p){return {tag:p[0],qty:p[1]};}),
+            note:r.note||null, optional:false, added:true};
+  }));
+
+  var byId = {}; ITEMS.forEach(function(i){ byId[i.id] = i; });
+  (S.custom.parts || []).forEach(function(p){
+    var it = byId[p.item];
+    if(it && !it.parts.some(function(x){return x.tag===p.tag;})) it.parts.push({tag:p.tag, qty:p.qty});
+  });
+  // Salt and black pepper apply to everything, imports included.
+  ITEMS.forEach(function(i){
+    if(!ALL_ITEM_IDS[i.id]) return;
+    i.parts = RECIPES.map(function(r){ return {tag:r.tag, qty:null}; });
+  });
+
+  VALID = {}; ITEMS.forEach(function(i){ VALID[i.id]=true; });
+}
 
 /* ================= STATE + STORAGE ================= */
 var KEY = "grocery-planner";
-var S = {selected:[],pantry:[],cart:[],tab:"recipes",hidePantry:true,filter:"",confirm:false,backup:null};
+var S = {selected:[],pantry:[],cart:[],tab:"recipes",hidePantry:true,filter:"",confirm:false,backup:null,
+         custom:{recipes:[],items:[],parts:[],steps:{}}, workerUrl:"", viewTag:"", imp:null};
 var status = "ready", savedAt = null, copied = false;
 
 function load(){
@@ -269,6 +324,12 @@ function load(){
       S.pantry   = (o.pantry||[]).filter(function(i){return VALID[i];});
       S.cart     = (o.cart||[]).filter(function(i){return VALID[i];});
       if(typeof o.hidePantry === "boolean") S.hidePantry = o.hidePantry;
+      if(o.custom) S.custom = normCustom(o.custom);
+      if(o.workerUrl) S.workerUrl = o.workerUrl;
+      rebuild();
+      S.selected = S.selected.filter(function(t){return !!BY_TAG[t];});
+      S.pantry   = S.pantry.filter(function(i){return VALID[i];});
+      S.cart     = S.cart.filter(function(i){return VALID[i];});
     }
     status = "ready";
   }catch(e){ status = "off"; }
@@ -277,7 +338,8 @@ function load(){
 function save(){
   try{
     localStorage.setItem(KEY, JSON.stringify(
-      {selected:S.selected,pantry:S.pantry,cart:S.cart,hidePantry:S.hidePantry}));
+      {selected:S.selected,pantry:S.pantry,cart:S.cart,hidePantry:S.hidePantry,
+       custom:S.custom,workerUrl:S.workerUrl}));
     status = "ready"; savedAt = new Date();
     ownSet("updatedAt", new Date().toISOString());
     queuePush();
@@ -322,7 +384,8 @@ async function gistPush(keepalive){
   var c=cfg();
   if(!c.token||!c.gistId||!SYNC.ready)return;
   var files={};
-  files[GIST_FILE]={content:JSON.stringify({pantry:S.pantry,selected:S.selected,updatedAt:new Date().toISOString()})};
+  files[GIST_FILE]={content:JSON.stringify({pantry:S.pantry,selected:S.selected,
+    custom:S.custom,workerUrl:S.workerUrl,updatedAt:new Date().toISOString()})};
   var res=await fetch("https://api.github.com/gists/"+c.gistId,{
     method:"PATCH",keepalive:!!keepalive,
     headers:{"Authorization":"token "+c.token,"Accept":"application/vnd.github.v3+json","Content-Type":"application/json"},
@@ -358,8 +421,12 @@ function syncOnLoad(){
     if(remote){
       var mine=ownGet("updatedAt","");
       var theirs=remote.updatedAt||"";
-      var remoteHasData=(remote.pantry||[]).length>0;
+      var rc=remote.custom||{};
+      var remoteHasData=(remote.pantry||[]).length>0||(rc.recipes||[]).length>0;
       if(theirs>mine&&remoteHasData){
+        if(remote.custom) S.custom=normCustom(remote.custom);
+        if(remote.workerUrl) S.workerUrl=remote.workerUrl;
+        rebuild();
         S.pantry=(remote.pantry||[]).filter(function(i){return VALID[i]});
         S.selected=(remote.selected||[]).filter(function(t){return!!BY_TAG[t]});
         ownSet("updatedAt",theirs);
@@ -414,6 +481,278 @@ function statusLine(){
   return "Saved on this device";
 }
 
+/* ================= IMPORT: parse + match =================
+   Two deterministic passes. First split each ingredient string into
+   qty / name / prep-note. Then score the name against the 104 items.
+   The matcher's job is to fail loudly, not to be clever — anything it
+   isn't confident about surfaces in the review screen instead of being
+   quietly folded into the wrong ingredient. */
+
+function normCustom(c){
+  return {recipes:c.recipes||[], items:c.items||[], parts:c.parts||[], steps:c.steps||{}};
+}
+
+var UNITS = {cup:"cup",cups:"cup",c:"cup",tablespoon:"tbsp",tablespoons:"tbsp",tbsp:"tbsp",tbsps:"tbsp",
+  tbs:"tbsp",teaspoon:"tsp",teaspoons:"tsp",tsp:"tsp",tsps:"tsp",ounce:"oz",ounces:"oz",oz:"oz",
+  pound:"lb",pounds:"lb",lb:"lb",lbs:"lb",gram:"g",grams:"g",g:"g",kilogram:"kg",kg:"kg",
+  milliliter:"ml",milliliters:"ml",ml:"ml",liter:"l",liters:"l",litre:"l",clove:"clove",cloves:"clove",
+  can:"can",cans:"can",jar:"jar",jars:"jar",bunch:"bunch",bunches:"bunch",head:"head",heads:"head",
+  pinch:"pinch",pinches:"pinch",slice:"slice",slices:"slice",sprig:"sprig",sprigs:"sprig",
+  stalk:"stalk",stalks:"stalk",package:"package",packages:"package",pkg:"package",
+  quart:"quart",quarts:"quart",pint:"pint",pints:"pint",dash:"dash",dashes:"dash",stick:"stick",sticks:"stick"};
+
+/* Stripped from both sides before scoring, so "boneless, skinless chicken
+   thighs" and the item "Boneless skinless chicken thighs or breast" reduce
+   to the same thing. */
+var NOISE = {};
+("fresh freshly large small medium chopped minced ground grated sliced diced roughly finely thinly "+
+ "trimmed boneless skinless peeled deveined optional divided plus more for serving taste room "+
+ "temperature softened melted packed drained rinsed cooked uncooked whole halved quartered shredded "+
+ "cubed crushed pressed juiced zested seeded stemmed of or and the a an about approximately good "+
+ "quality best any choice preferably such as needed extra virgin").split(" ").forEach(function(w){ NOISE[w]=1; });
+
+var ALIAS = {yoghurt:"yogurt",broth:"stock",garbanzo:"chickpea",aubergine:"eggplant",
+  courgette:"zucchini",capsicum:"pepper",chilli:"chili",chile:"chili",passata:"tomato",
+  parmigiano:"parmesan",reggiano:"parmesan",tamari:"soy",canola:"neutral",vegetable:"neutral",
+  confectioner:"powdered",coriander:"coriander",scallion:"scallion",courge:"squash"};
+
+/* Whole-name shortcuts. Cheaper and far more reliable than teaching the
+   scorer that broth is stock and kosher salt is salt. */
+var EXPLICIT = {
+  "green onion":"scallions","green onions":"scallions","scallion":"scallions","scallions":"scallions",
+  "chicken broth":"chicken-stock","chicken stock":"chicken-stock",
+  "kosher salt":"salt","sea salt":"salt","table salt":"salt","fine salt":"salt",
+  "black pepper":"black-pepper","freshly ground black pepper":"black-pepper","ground black pepper":"black-pepper",
+  "extra virgin olive oil":"olive-oil","evoo":"olive-oil",
+  "greek yogurt":"yoghurt","greek yoghurt":"yoghurt","plain yogurt":"yoghurt",
+  "coriander leaves":"cilantro","fresh coriander":"cilantro","cilantro leaves":"cilantro",
+  "vegetable oil":"neutral-oil","canola oil":"neutral-oil","grapeseed oil":"neutral-oil",
+  "white sugar":"sugar","granulated sugar":"sugar","caster sugar":"sugar",
+  "corn starch":"cornstarch","corn flour":"cornstarch",
+  "all purpose flour":"flour","plain flour":"flour","ap flour":"flour",
+  "long grain rice":"basmati","jasmine rice":"jasmine-rice",
+  "unsalted butter":"butter","salted butter":"butter",
+  "low sodium soy sauce":"soy-sauce","light soy sauce":"soy-sauce","soy sauce":"soy-sauce"
+};
+
+/* Opposite sides of one of these is a different ingredient, however much
+   of the name they share. This is the silken-vs-extra-firm guard. */
+var CONFLICTS = [["fresh","dried"],["silken","firm"],["ground","whole"],["salted","unsalted"],
+                 ["smoked","sweet"],["light","dark"],["raw","cooked"],["sweet","hot"]];
+
+var FRAC = "\u00bc\u00bd\u00be\u2153\u2154\u215b\u215c\u215d\u215e";
+var PREP = new RegExp("^(chopped|minced|diced|sliced|grated|shredded|peeled|trimmed|cut|divided|"+
+  "softened|melted|drained|rinsed|pressed|cubed|crushed|halved|quartered|julienned|zested|juiced|"+
+  "seeded|stemmed|deveined|thinly|finely|roughly|freshly|lightly|well|room|packed|plus|for|to|at|"+
+  "optional|or|about|preferably|rough|torn|beaten|whisked|toasted|warmed|thawed|frozen|washed)\\b","i");
+
+function singular(w){
+  if(w.length < 4) return w;
+  if(/ies$/.test(w)) return w.slice(0,-3)+"y";
+  if(/oes$/.test(w)) return w.slice(0,-2);
+  if(/(ch|sh|s|x|z)es$/.test(w)) return w.slice(0,-2);
+  if(/ss$/.test(w)) return w;
+  if(/s$/.test(w)) return w.slice(0,-1);
+  return w;
+}
+
+function toks(s, keepNoise){
+  var raw = String(s).toLowerCase().replace(/[^a-z0-9\s-]/g," ").replace(/-/g," ").split(/\s+/);
+  var out = [], seen = {};
+  raw.forEach(function(w){
+    if(!w) return;
+    w = ALIAS[w] || w; w = singular(w); w = ALIAS[w] || w;
+    if(!keepNoise && NOISE[w]) return;
+    if(!seen[w]){ seen[w] = 1; out.push(w); }
+  });
+  return out;
+}
+
+function normName(s){
+  return String(s).toLowerCase().replace(/[^a-z0-9\s]/g," ").replace(/\s+/g," ").trim();
+}
+
+function parseLine(raw){
+  var s = String(raw).replace(/\s+/g," ").trim();
+  var out = {raw:s, qty:"", name:s, note:""};
+  var num = "(?:\\d+(?:\\.\\d+)?(?:\\s*\\/\\s*\\d+)?|["+FRAC+"])";
+  var m = s.match(new RegExp("^("+num+"(?:\\s*(?:to|-|\\u2013)\\s*"+num+")?(?:\\s+"+num+")?)\\s*"));
+  var rest = s;
+  if(m){ out.qty = m[1].replace(/\s+/g," ").trim(); rest = s.slice(m[0].length); }
+
+  var w = rest.match(/^([A-Za-z]+)\.?\s+/);
+  if(w && UNITS[w[1].toLowerCase()]){
+    out.qty = (out.qty ? out.qty + " " : "") + UNITS[w[1].toLowerCase()];
+    rest = rest.slice(w[0].length);
+  }
+
+  /* Only treat a comma as the name/prep boundary when prep language follows.
+     Otherwise "boneless, skinless chicken thighs" gets cut in half. */
+  var idx = -1, p = 0, c;
+  while((c = rest.indexOf(",", p)) !== -1){
+    if(PREP.test(rest.slice(c+1).trim())){ idx = c; break; }
+    p = c + 1;
+  }
+  if(idx !== -1){
+    out.name = rest.slice(0, idx).trim();
+    out.note = rest.slice(idx+1).trim();
+  } else {
+    var f = rest.match(/\s+(for\s+\w+|to\s+taste|plus\s+more.*|divided|optional)\s*$/i);
+    if(f){ out.note = f[1].trim(); rest = rest.slice(0, rest.length - f[0].length); }
+    out.name = rest.trim();
+  }
+  out.name = out.name.replace(/\s*\(([^)]*)\)\s*/g, function(_, inner){
+    out.note = out.note ? out.note + "; " + inner : inner; return " ";
+  }).replace(/\s+/g," ").replace(/^(of|or)\s+/i,"").trim();
+  return out;
+}
+
+function scoreMatch(item, lineName){
+  var a = toks(item.name), b = toks(lineName);
+  if(!a.length || !b.length) return 0;
+  var shared = a.filter(function(t){ return b.indexOf(t) !== -1; });
+  if(!shared.length) return 0;
+
+  var s, ah = a[a.length-1], bh = b[b.length-1];
+  if(b.indexOf(ah) === -1 && a.indexOf(bh) === -1){
+    s = 0.2 * shared.length / a.length;              // shares words but not the head noun
+  } else {
+    var missA = a.filter(function(t){ return b.indexOf(t) === -1; }).length;
+    var missB = b.filter(function(t){ return a.indexOf(t) === -1; }).length;
+    s = 1 - 0.3*missA - 0.2*missB;
+  }
+  var ra = toks(item.name, true), rb = toks(lineName, true);
+  CONFLICTS.forEach(function(pair){
+    var ia = pair.filter(function(x){ return ra.indexOf(x) !== -1; }).join();
+    var ib = pair.filter(function(x){ return rb.indexOf(x) !== -1; }).join();
+    if(ia && ib && ia !== ib) s -= 0.5;
+  });
+  return Math.max(0, Math.min(1, s));
+}
+
+function bestMatches(name){
+  var key = normName(name);
+  if(EXPLICIT[key] && VALID[EXPLICIT[key]]) return [{id:EXPLICIT[key], score:1}];
+  return ITEMS.map(function(i){ return {id:i.id, score:scoreMatch(i, name)}; })
+    .filter(function(x){ return x.score > 0.15; })
+    .sort(function(x,y){ return y.score - x.score; })
+    .slice(0, 6);
+}
+
+var SECT_HINTS = [
+  [/\b(oil|ghee|shortening)\b/, "Oils"],
+  [/\b(salt|peppercorn|cumin|paprika|turmeric|cinnamon|oregano|thyme|masala|cayenne|nutmeg|cardamom|bay|seasoning|chili powder|chili flake|pepper flake|sesame seed|coriander seed|fenugreek|isot)\b/, "Spices & dry seasoning"],
+  [/\b(sauce|vinegar|soy|syrup|honey|sugar|gochujang|tahini|ketchup|sriracha|mirin|mustard|jam|molasses|sambal)\b/, "Sauces & Asian aisle"],
+  [/\b(canned|bean|chickpea|lentil|coconut milk|stock|bouillon|paste|puree|peanut butter|chip|olive)\b/, "Canned & jarred"],
+  [/\b(rice|pasta|noodle|flour|bread|panko|breadcrumb|tortilla|oat|cornstarch|starch|couscous|quinoa|cracker|pita)\b/, "Grains, flours & starch"],
+  [/\b(chicken|beef|pork|lamb|shrimp|fish|salmon|tofu|tempeh|egg|milk|butter|cheese|yogurt|yoghurt|cream|mayo|mayonnaise|bacon|sausage|parmesan|feta|buttermilk|miso)\b/, "Protein & refrigerated"],
+  [/\b(lettuce|tomato|onion|garlic|ginger|cilantro|parsley|dill|lemon|lime|orange|cucumber|cabbage|broccoli|cauliflower|chive|scallion|shallot|mint|potato|carrot|celery|apple|avocado|mushroom|bell pepper|chili|serrano|jalapeno|herb|spinach|kale|zucchini|squash)\b/, "Produce"],
+  [/\b(parchment|foil|skewer|toothpick|bag)\b/, "Non-food"]
+];
+function guessSection(name){
+  var n = normName(name);
+  for(var i=0;i<SECT_HINTS.length;i++) if(SECT_HINTS[i][0].test(n)) return SECT_HINTS[i][1];
+  return "Produce";
+}
+
+function slug(s){
+  return normName(s).replace(/\s+/g,"-").slice(0,40) || "item";
+}
+function titleCase(s){
+  s = String(s).trim();
+  return s ? s[0].toUpperCase() + s.slice(1) : s;
+}
+
+var PALETTE = ["#7C2D4A","#A65A2E","#46707A","#6D3B8E","#2F6BB0","#B33246","#3E7D3A","#8A5A2B",
+               "#C25E12","#17788C","#B03A86","#6E7B1F","#4B4FA6","#2E8B6E","#A8860B","#7A46A0"];
+function nextColor(){
+  var used = {}; RECIPES.forEach(function(r){ used[r.color] = 1; });
+  for(var i=0;i<PALETTE.length;i++) if(!used[PALETTE[i]]) return PALETTE[i];
+  return PALETTE[RECIPES.length % PALETTE.length];
+}
+function uniqueTag(name){
+  var w = String(name).replace(/[^A-Za-z\s]/g," ").split(/\s+/).filter(Boolean);
+  var c = [];
+  if(w.length > 1) c.push((w[0][0]+w[1][0]).toUpperCase());
+  if(w.length > 2) c.push((w[0][0]+w[2][0]).toUpperCase());
+  if(w[0] && w[0].length > 1) c.push(w[0].slice(0,2).toUpperCase());
+  for(var i=0;i<c.length;i++) if(!BY_TAG[c[i]]) return c[i];
+  var A = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  for(var x=0;x<26;x++) for(var y=0;y<26;y++) if(!BY_TAG[A[x]+A[y]]) return A[x]+A[y];
+  return "Z" + RECIPES.length;
+}
+
+function buildRow(line){
+  var p = parseLine(line);
+  var m = bestMatches(p.name);
+  var top = m[0];
+  return {raw:p.raw, qty:p.qty, name:p.name, note:p.note,
+          res:(top && top.score >= 0.55) ? top.id : "__new__",
+          score:(top ? top.score : 0), section:guessSection(p.name), options:m};
+}
+
+function runImport(){
+  var wu = (S.workerUrl||"").trim().replace(/\/+$/,"");
+  var ru = ((S.imp && S.imp.url) || "").trim();
+  if(!wu || !ru){ S.imp = {url:ru, err:"Both URLs are needed", loading:false}; render(); return; }
+  S.imp = {url:ru, loading:true, err:"", data:null, rows:null};
+  render();
+  fetch(wu + "/?url=" + encodeURIComponent(ru))
+    .then(function(r){ return r.json().then(function(j){
+      if(!r.ok) throw new Error(j.error || ("HTTP " + r.status)); return j; }); })
+    .then(function(d){
+      if(!d.ingredients || !d.ingredients.length) throw new Error("No ingredients came back");
+      S.imp = {url:ru, loading:false, err:"", data:d, rows:d.ingredients.map(buildRow)};
+      render();
+    })
+    .catch(function(e){
+      S.imp = {url:ru, loading:false, err:e.message||"Fetch failed", data:null, rows:null};
+      render();
+    });
+}
+
+function commitImport(){
+  var d = S.imp && S.imp.data; if(!d) return;
+  var tag = uniqueTag(d.name), host = "";
+  try{ host = new URL(d.source).hostname.replace(/^www\./,""); }catch(e){}
+  S.custom.recipes.push({tag:tag, name:d.name, color:nextColor(), gap:"",
+    source:host + (d.yield ? " \u00b7 " + d.yield + " servings" : ""),
+    url:d.source, image:d.image||"", times:d.times||null,
+    rating:d.rating||null, yield:d.yield||"", added:new Date().toISOString()});
+  if(d.instructions && d.instructions.length) S.custom.steps[tag] = d.instructions;
+
+  S.imp.rows.forEach(function(r){
+    if(r.res === "__skip__") return;
+    var qty = r.qty || r.note || "as needed";
+    if(r.res === "__new__"){
+      var base = "u-" + slug(r.name), id = base, n = 2;
+      while(VALID[id] || S.custom.items.some(function(x){ return x.id === id; })) id = base + "-" + (n++);
+      S.custom.items.push({id:id, section:r.section, name:titleCase(r.name),
+                           total:qty, parts:[[tag, qty]], note:r.note||null});
+    } else {
+      S.custom.parts.push({item:r.res, tag:tag, qty:qty});
+    }
+  });
+
+  rebuild();
+  if(!has(S.selected, tag)) S.selected.push(tag);
+  S.imp = null; S.tab = "recipes"; S.viewTag = tag;
+  save(); render();
+}
+
+function dropRecipe(tag){
+  S.custom.recipes = S.custom.recipes.filter(function(r){ return r.tag !== tag; });
+  S.custom.parts   = S.custom.parts.filter(function(p){ return p.tag !== tag; });
+  S.custom.items   = S.custom.items.filter(function(i){
+    return !(i.parts || []).every(function(p){ return p[0] === tag; });
+  });
+  delete S.custom.steps[tag];
+  S.selected = S.selected.filter(function(t){ return t !== tag; });
+  rebuild();
+  S.tab = "recipes"; S.viewTag = "";
+  save();
+}
+
 /* ================= RENDER ================= */
 function render(){
   var list = buildList(), grouped = group(list);
@@ -425,6 +764,11 @@ function render(){
     cap = (S.selected.length===1?"recipe":"recipes")+" picked \u00b7 "+list.length+" ingredients"; }
   else if(S.tab === "pantry"){ big = S.pantry.length;
     cap = "of "+ITEMS.length+" ingredients marked as in stock"; }
+  else if(S.tab === "import"){ big = (S.imp && S.imp.rows) ? S.imp.rows.length : 0;
+    cap = (S.imp && S.imp.rows) ? "ingredients found \u00b7 review before adding" : "paste a recipe URL below"; }
+  else if(S.tab === "steps"){ var sg = S.custom.steps[S.viewTag] || [];
+    big = sg.reduce(function(n,g){ return n + g.steps.length; }, 0);
+    cap = "steps \u00b7 " + (BY_TAG[S.viewTag] ? BY_TAG[S.viewTag].name : ""); }
   else { big = toBuy.length;
     cap = "left to buy \u00b7 "+S.cart.length+" in the cart"+(haveCount?" \u00b7 "+haveCount+" from the pantry":""); }
 
@@ -438,15 +782,117 @@ function render(){
 
   if(S.tab === "recipes"){
     h += '<div class="bar"><button class="pill" data-act="all-recipes">Pick all '+RECIPES.length+
-      '</button><button class="pill" data-act="no-recipes">Clear picks</button></div>';
+      '</button><button class="pill" data-act="no-recipes">Clear picks</button>'+
+      '<button class="pill" data-act="tab" data-v="import">+ Import from URL</button></div>';
     RECIPES.forEach(function(r){
-      var on = has(S.selected, r.tag);
-      h += '<button class="rrow" data-act="recipe" data-v="'+r.tag+'">'+
+      var on = has(S.selected, r.tag), steps = S.custom.steps[r.tag];
+      h += '<div class="rrow">'+
+        '<button class="tap" data-act="recipe" data-v="'+r.tag+'">'+
         '<span class="swatch" style="border-color:'+r.color+';background:'+(on?r.color:"transparent")+'">'+
         (on?tick():"")+'</span><span style="flex:1;min-width:0">'+
         '<span class="rname">'+esc(r.name)+'</span><span class="rsrc">'+esc(r.source)+'</span>'+
-        (r.gap?'<span class="gap">'+esc(r.gap)+'</span>':"")+'</span></button>';
+        (r.gap?'<span class="gap">'+esc(r.gap)+'</span>':"")+'</span></button>'+
+        (steps ? '<button class="steps-btn" data-act="steps" data-v="'+r.tag+'">Steps</button>' : "")+
+        '</div>';
     });
+  }
+
+  /* ---------------- IMPORT ---------------- */
+  if(S.tab === "import"){
+    var I = S.imp || {};
+    h += '<div style="padding:16px 0 0">'+
+      '<label class="lbl">Worker URL</label>'+
+      '<input class="fld" id="wurl" placeholder="https://something.workers.dev" value="'+esc(S.workerUrl)+'">'+
+      '<label class="lbl">Recipe URL</label>'+
+      '<input class="fld" id="rurl" placeholder="https://…" value="'+esc(I.url||"")+'">'+
+      '<button class="pill" data-act="run-import">'+(I.loading?"Fetching…":"Fetch recipe")+'</button></div>';
+
+    if(I.err) h += '<div class="warn">'+esc(I.err)+'</div>';
+
+    if(I.rows){
+      var d = I.data, t = d.times || {};
+      h += '<h2 class="gp-sec" style="padding-top:22px">'+esc(d.name)+'</h2>';
+      var chips = [];
+      if(t.prep) chips.push("Prep " + t.prep.text);
+      if(t.cook) chips.push("Cook " + t.cook.text);
+      if(t.total) chips.push("Total " + t.total.text);
+      if(d.yield) chips.push(d.yield + " servings");
+      if(d.stepCount) chips.push(d.stepCount + " steps");
+      if(d.rating) chips.push("★ " + d.rating.value);
+      if(chips.length) h += '<div class="meta">'+chips.map(function(c){
+        return '<span class="chip">'+esc(c)+'</span>'; }).join("")+'</div>';
+
+      var nOk = I.rows.filter(function(r){ return r.res !== "__new__" && r.res !== "__skip__"; }).length;
+      h += '<p style="font-size:13px;color:var(--muted);line-height:1.5;margin:14px 0 0">'+
+        nOk+' of '+I.rows.length+' matched your list. Check the rest before adding — '+
+        'anything left as new becomes a brand-new ingredient.</p>';
+
+      var allOpts = ITEMS.slice().sort(function(a,b){ return a.name.localeCompare(b.name); });
+      I.rows.forEach(function(r, i){
+        var isNew = r.res === "__new__", isSkip = r.res === "__skip__";
+        var badge = isSkip ? '<span class="raw">skipped</span>'
+          : isNew ? '<span class="new">new ingredient</span>'
+          : (r.score >= 0.75 ? '<span class="ok">matched</span>' : '<span class="maybe">best guess — check</span>');
+        var sug = r.options.map(function(o){
+          return '<option value="'+o.id+'"'+(o.id===r.res?" selected":"")+'>'+
+            esc((BY_TAG[o.id]?"":"") + (ITEMS.filter(function(x){return x.id===o.id;})[0]||{name:o.id}).name)+
+            ' · '+Math.round(o.score*100)+'%</option>'; }).join("");
+        h += '<div class="row"><span style="flex:1;min-width:0">'+
+          '<span class="raw">'+esc(r.raw)+'</span>'+
+          '<span class="name">'+esc(r.qty ? r.qty+"  —  "+r.name : r.name)+'</span>'+
+          '<span class="qty">'+badge+(r.note?' · '+esc(r.note):"")+'</span>'+
+          '<select class="sel" data-row="'+i+'">'+
+            (sug ? '<optgroup label="Suggested">'+sug+'</optgroup>' : "")+
+            '<optgroup label="Actions">'+
+              '<option value="__new__"'+(isNew?" selected":"")+'>+ Add as new ingredient</option>'+
+              '<option value="__skip__"'+(isSkip?" selected":"")+'>Skip this line</option>'+
+            '</optgroup>'+
+            '<optgroup label="All ingredients">'+allOpts.map(function(o){
+              return '<option value="'+o.id+'"'+(o.id===r.res?" selected":"")+'>'+esc(o.name)+'</option>';
+            }).join("")+'</optgroup>'+
+          '</select>'+
+          (isNew ? '<select class="sel" data-sect="'+i+'" style="margin-left:6px">'+
+            SECTIONS.map(function(s){
+              return '<option value="'+esc(s)+'"'+(s===r.section?" selected":"")+'>'+esc(s)+'</option>';
+            }).join("")+'</select>' : "")+
+          '</span></div>';
+      });
+    }
+  }
+
+  /* ---------------- STEPS ---------------- */
+  if(S.tab === "steps"){
+    var rec = BY_TAG[S.viewTag], groups = S.custom.steps[S.viewTag];
+    if(!rec || !groups){
+      h += '<div class="empty"><p>No method stored</p><small>Only imported recipes carry '+
+        'instructions.</small></div>';
+    } else {
+      var tt = rec.times || {}, ch = [];
+      if(tt.prep) ch.push("Prep " + tt.prep.text);
+      if(tt.cook) ch.push("Cook " + tt.cook.text);
+      if(tt.total) ch.push("Total " + tt.total.text);
+      if(rec.yield) ch.push(rec.yield + " servings");
+      h += '<h2 class="gp-sec" style="padding-top:20px;display:block">'+esc(rec.name)+'</h2>';
+      if(ch.length) h += '<div class="meta">'+ch.map(function(c){
+        return '<span class="chip">'+esc(c)+'</span>'; }).join("")+'</div>';
+      var n = 0;
+      groups.forEach(function(g){
+        if(g.name) h += '<h3 class="grp">'+esc(g.name)+'</h3>';
+        g.steps.forEach(function(s){
+          n++;
+          h += '<div class="step"><span class="num">'+n+'</span><span class="stxt">'+
+            (s.title ? '<span class="stt">'+esc(s.title)+'</span>' : "")+
+            esc(s.text)+'</span></div>';
+        });
+      });
+      if(rec.url) h += '<div class="meta"><a class="chip" href="'+esc(rec.url)+
+        '" target="_blank" rel="noreferrer">Original recipe</a></div>';
+      h += '<div class="bar" style="padding-top:20px">'+
+        (S.confirm ? '<button class="pill" data-act="drop-recipe" data-v="'+S.viewTag+
+            '" style="border-color:var(--red);color:var(--red)">Yes, remove this recipe</button>'+
+            '<button class="pill" data-act="unconfirm">Keep it</button>'
+          : '<button class="pill" data-act="confirm">Remove this recipe</button>')+'</div>';
+    }
   }
 
   if(S.tab === "list"){
@@ -568,7 +1014,14 @@ function render(){
   }
   if(S.tab === "sync")
     h += '<button class="btn" data-act="tab" data-v="list">Back to the list</button>';
-  if(S.tab !== "pantry" && S.tab !== "sync")
+  if(S.tab === "import")
+    h += (S.imp && S.imp.rows
+      ? '<button class="btn" data-act="commit-import">Add to my recipes</button>'+
+        '<button class="btn ghost" data-act="cancel-import">Cancel</button>'
+      : '<button class="btn" data-act="tab" data-v="recipes">Back to recipes</button>');
+  if(S.tab === "steps")
+    h += '<button class="btn" data-act="tab" data-v="recipes">Back to recipes</button>';
+  if(S.tab !== "pantry" && S.tab !== "sync" && S.tab !== "import" && S.tab !== "steps")
     h += '<button class="btn ghost" data-act="tab" data-v="pantry">Pantry'+
       (S.pantry.length?" ("+S.pantry.length+")":"")+'</button>';
   h += '</div></footer>';
@@ -580,6 +1033,11 @@ function render(){
     q1.addEventListener("input", function(){ S.filter = q1.value; render(); });
     if(S.filter){ q1.focus(); try{ q1.setSelectionRange(q1.value.length, q1.value.length); }catch(e){} }
   }
+  var wu = document.getElementById("wurl");
+  if(wu) wu.addEventListener("input", function(){ S.workerUrl = wu.value; ownSet("worker", wu.value); });
+  var ru = document.getElementById("rurl");
+  if(ru) ru.addEventListener("input", function(){
+    S.imp = S.imp || {}; S.imp.url = ru.value; });
   ["ght","ghg"].forEach(function(id){
     var el=document.getElementById(id);
     if(el)el.addEventListener("input",function(){el.setAttribute("value",el.value)});
@@ -605,6 +1063,18 @@ function listText(){
   return out.join("\n").trim();
 }
 
+document.getElementById("app").addEventListener("change", function(ev){
+  var el = ev.target;
+  if(!S.imp || !S.imp.rows) return;
+  if(el.hasAttribute("data-row")){
+    var r = S.imp.rows[+el.getAttribute("data-row")];
+    if(r){ r.res = el.value; render(); }
+  } else if(el.hasAttribute("data-sect")){
+    var r2 = S.imp.rows[+el.getAttribute("data-sect")];
+    if(r2) r2.section = el.value;          // no re-render; keeps the select open
+  }
+});
+
 document.getElementById("app").addEventListener("click", function(ev){
   var el = ev.target.closest("[data-act]");
   if(!el) return;
@@ -612,7 +1082,11 @@ document.getElementById("app").addEventListener("click", function(ev){
   var dirty = true;
 
   if(act === "noop" || act === "clear-filter"){ if(act==="clear-filter") S.filter=""; dirty=false; }
-  else if(act === "tab"){ S.tab = v; S.confirm = false; copied = false; dirty = false; }
+  else if(act === "tab"){
+    S.tab = v; S.confirm = false; copied = false; dirty = false;
+    if(v === "import" && !S.imp) S.imp = {url:"", loading:false, err:"", data:null, rows:null};
+    if(v === "import" && !S.workerUrl) S.workerUrl = ownGet("worker","");
+  }
   else if(act === "recipe") toggle(S.selected, v);
   else if(act === "all-recipes") S.selected = RECIPES.map(function(r){ return r.tag; });
   else if(act === "no-recipes") S.selected = [];
@@ -669,6 +1143,11 @@ document.getElementById("app").addEventListener("click", function(ev){
     ownSet("gh-token","");ownSet("gh-gist-id","");
     SYNC.ready=false;SYNC.state="idle";SYNC.at=null;SYNC.err="";render();return;
   }
+  else if(act === "run-import"){ runImport(); return; }
+  else if(act === "commit-import"){ commitImport(); return; }
+  else if(act === "cancel-import"){ S.imp = null; S.tab = "recipes"; dirty = false; }
+  else if(act === "steps"){ S.tab = "steps"; S.viewTag = v; S.confirm = false; dirty = false; }
+  else if(act === "drop-recipe"){ dropRecipe(v); render(); return; }
   else if(act === "copy"){
     var txt = listText();
     if(navigator.clipboard && navigator.clipboard.writeText){
@@ -683,7 +1162,9 @@ document.getElementById("app").addEventListener("click", function(ev){
   render();
 });
 
+if(!S.workerUrl) S.workerUrl = ownGet("worker","");
 load();
+rebuild();
 render();
 syncOnLoad();
 </script>
