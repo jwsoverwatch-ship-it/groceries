@@ -691,14 +691,36 @@ function buildRow(line){
           score:(top ? top.score : 0), section:guessSection(p.name), options:m};
 }
 
+/* Without a scheme the browser reads this as a relative path and fetches
+   your own site, which answers with an HTML 404 page. */
+var DEFAULT_WORKER = "https://tiny-disk-0921.jwsoverwatch.workers.dev";
+
+function workerBase(){
+  var u = (S.workerUrl||"").trim().replace(/\/+$/,"") || DEFAULT_WORKER;
+  if(!/^https?:\/\//i.test(u)) u = "https://" + u;
+  return u;
+}
+
 function runImport(){
-  var wu = (S.workerUrl||"").trim().replace(/\/+$/,"");
+  var wu = workerBase();
   var ru = ((S.imp && S.imp.url) || "").trim();
   if(!wu || !ru){ S.imp = {url:ru, err:"Both URLs are needed", loading:false}; render(); return; }
+  if(!/^https?:\/\//i.test(ru)){
+    S.imp = {url:ru, err:"The recipe URL needs to start with https://", loading:false};
+    render(); return;
+  }
+  S.workerUrl = wu; ownSet("worker", wu);
   S.imp = {url:ru, loading:true, err:"", data:null, rows:null};
   render();
   fetch(wu + "/?url=" + encodeURIComponent(ru))
-    .then(function(r){ return r.json().then(function(j){
+    .then(function(r){ return r.text().then(function(t){
+      var j;
+      try { j = JSON.parse(t); }
+      catch(e){
+        throw new Error(/^\s*</.test(t)
+          ? "Got a web page back instead of JSON \u2014 check the Worker URL"
+          : "Worker returned " + r.status + " and not JSON");
+      }
       if(!r.ok) throw new Error(j.error || ("HTTP " + r.status)); return j; }); })
     .then(function(d){
       if(!d.ingredients || !d.ingredients.length) throw new Error("No ingredients came back");
@@ -1085,7 +1107,7 @@ document.getElementById("app").addEventListener("click", function(ev){
   else if(act === "tab"){
     S.tab = v; S.confirm = false; copied = false; dirty = false;
     if(v === "import" && !S.imp) S.imp = {url:"", loading:false, err:"", data:null, rows:null};
-    if(v === "import" && !S.workerUrl) S.workerUrl = ownGet("worker","");
+    if(v === "import" && !S.workerUrl) S.workerUrl = ownGet("worker","") || DEFAULT_WORKER;
   }
   else if(act === "recipe") toggle(S.selected, v);
   else if(act === "all-recipes") S.selected = RECIPES.map(function(r){ return r.tag; });
@@ -1162,7 +1184,7 @@ document.getElementById("app").addEventListener("click", function(ev){
   render();
 });
 
-if(!S.workerUrl) S.workerUrl = ownGet("worker","");
+if(!S.workerUrl) S.workerUrl = ownGet("worker","") || DEFAULT_WORKER;
 load();
 rebuild();
 render();
